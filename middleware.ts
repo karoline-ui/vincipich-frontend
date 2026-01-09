@@ -1,37 +1,28 @@
-import { NextResponse, type NextRequest } from 'next/server';
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
+  const res = NextResponse.next()
 
-  // Cliente do Supabase que lê o cookie de sessão
-  const supabase = createMiddlewareClient({ req, res });
+  const supabase = createMiddlewareClient({ req, res })
+  const { data: { session } } = await supabase.auth.getSession()
 
-  // Rotas públicas (não exigir login)
-  const publicPaths = ['/login'];
-  const { pathname } = req.nextUrl;
+  const isAuthPage = req.nextUrl.pathname.startsWith('/login')
 
-  if (publicPaths.includes(pathname)) {
-    return res;
+  // ❌ Não logado tentando acessar app
+  if (!session && !isAuthPage) {
+    return NextResponse.redirect(new URL('/login', req.url))
   }
 
-  // Pega sessão do usuário via cookie
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  // Se não tiver sessão, manda pro login
-  if (!session) {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = '/login';
-    // opcional: voltar para a página depois do login
-    redirectUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(redirectUrl);
+  // ✅ Logado tentando acessar login
+  if (session && isAuthPage) {
+    return NextResponse.redirect(new URL('/', req.url))
   }
 
-  return res;
+  return res
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
-};
+  matcher: ['/((?!api|_next|favicon.ico).*)'],
+}

@@ -23,33 +23,24 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      if (isLogin) {
-        const { error } = await signIn(email, password);
-        if (error) {
-          setError(error.message === 'Invalid login credentials' 
-            ? 'Email ou senha incorretos' 
-            : error.message);
-        } else {
-          router.push('/');
-        }
+        if (isLogin) {
+    const { error } = await signIn(email, password);
+
+    if (error) {
+      if (error.message === 'Invalid login credentials') {
+        setError('Email ou senha incorretos');
+      } else if (error.message === 'Email not confirmed') {
+        setError('Confirme seu email antes de fazer login.');
       } else {
-        if (!nome.trim()) {
-          setError('Digite seu nome');
-          setLoading(false);
-          return;
-        }
-        if (password.length < 6) {
-          setError('A senha deve ter pelo menos 6 caracteres');
-          setLoading(false);
-          return;
-        }
-        const { error } = await signUp(email, password, nome);
-        if (error) {
-          setError(error.message);
-        } else {
-          router.push('/');
-        }
+        setError(error.message);
       }
+    } else {
+      // ✅ FORÇA RELOAD TOTAL
+      window.location.href = '/';
+    }
+  }
+
+      
     } catch (err: any) {
       setError('Erro ao processar. Tente novamente.');
     } finally {
