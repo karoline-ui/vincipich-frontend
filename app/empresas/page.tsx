@@ -14,6 +14,7 @@ import {
   Pencil,
   Trash2,
   AlertTriangle,
+  X,
 } from 'lucide-react';
 import { Card, Button, Badge, EmptyState, Skeleton } from '@/components/ui';
 import Portal from '@/components/ui/Portal';
