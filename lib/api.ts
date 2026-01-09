@@ -2,7 +2,7 @@
 // 🚀 VINCIPITCH.AI - CLIENTE DA API (SINGLE SOURCE OF TRUTH)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import type {
   Empresa,
   EmpresaCreate,
@@ -15,8 +15,35 @@ import type {
   Setor
 } from '@/types';
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+// Garante /api/v1 SEMPRE (mesmo se a env vier sem)
+function normalizeBaseUrl(raw?: string) {
+  const fallback = 'https://vincipich-ai-897373535500.southamerica-east1.run.app';
+  const base = (raw?.trim() || fallback).replace(/\/+$/, ''); // remove trailing /
+  // se já tem /api/v1 (ou /api/v1/), mantém
+  if (/\/api\/v1$/i.test(base)) return base;
+  return `${base}/api/v1`;
+}
+
+const API_BASE_URL = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL);
+
+type ApiEnvelope<T> = {
+  success?: boolean;
+  data?: T;
+  message?: string;
+  total?: number;
+  limit?: number;
+  offset?: number;
+  detail?: string; // fastapi errors às vezes
+};
+
+function unwrap<T>(payload: any): T {
+  // se vier no formato {success, data}, devolve data
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    return payload.data as T;
+  }
+  // senão devolve o próprio payload
+  return payload as T;
+}
 
 class ApiClient {
   private client: AxiosInstance;
@@ -25,7 +52,23 @@ class ApiClient {
     this.client = axios.create({
       baseURL: API_BASE_URL,
       headers: { 'Content-Type': 'application/json' },
+      timeout: 60_000,
     });
+
+    // Log útil pra debugar (sem quebrar prod)
+    this.client.interceptors.response.use(
+      (res: AxiosResponse) => res,
+      (err) => {
+        // eslint-disable-next-line no-console
+        console.error('[API ERROR]', {
+          url: err?.config?.baseURL + err?.config?.url,
+          method: err?.config?.method,
+          status: err?.response?.status,
+          data: err?.response?.data,
+        });
+        return Promise.reject(err);
+      }
+    );
   }
 
   // EMPRESAS
@@ -36,28 +79,40 @@ class ApiClient {
     offset?: number;
   }): Promise<{ data: Empresa[]; total: number; limit?: number; offset?: number }> {
     const response = await this.client.get('/empresas', { params });
-    // backend retorna PaginatedResponse: { success, data, total, limit, offset }
-    return response.data;
+
+    // pode vir envelope: {success, data, total, limit, offset}
+    const payload = response.data as ApiEnvelope<Empresa[]>;
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+      return {
+        data: (payload.data || []) as Empresa[],
+        total: (payload.total || 0) as number,
+        limit: payload.limit,
+        offset: payload.offset,
+      };
+    }
+
+    // fallback: se o backend retornar direto
+    return { data: unwrap<Empresa[]>(response.data) || [], total: 0 };
   }
 
   async obterEmpresa(id: string): Promise<Empresa> {
     const response = await this.client.get(`/empresas/${id}`);
-    return response.data;
+    return unwrap<Empresa>(response.data);
   }
 
   async criarEmpresa(data: EmpresaCreate): Promise<Empresa> {
     const response = await this.client.post('/empresas', data);
-    return response.data;
+    return unwrap<Empresa>(response.data);
   }
 
   async atualizarEmpresa(id: string, data: Partial<Empresa>): Promise<Empresa> {
     const response = await this.client.put(`/empresas/${id}`, data);
-    return response.data;
+    return unwrap<Empresa>(response.data);
   }
 
   async deletarEmpresa(id: string): Promise<{ success: boolean; message: string }> {
     const response = await this.client.delete(`/empresas/${id}`);
-    return response.data;
+    return unwrap<{ success: boolean; message: string }>(response.data);
   }
 
   // DOCUMENTOS
@@ -71,12 +126,12 @@ class ApiClient {
       formData,
       { headers: { 'Content-Type': 'multipart/form-data' } }
     );
-    return response.data;
+    return unwrap<Documento>(response.data);
   }
 
   async listarDocumentos(empresaId: string): Promise<Documento[]> {
     const response = await this.client.get(`/empresas/${empresaId}/documentos`);
-    return response.data;
+    return unwrap<Documento[]>(response.data) || [];
   }
 
   async deletarDocumento(empresaId: string, documentoId: string): Promise<void> {
@@ -86,22 +141,22 @@ class ApiClient {
   // ANÁLISES
   async processarAnalise(empresaId: string): Promise<{ success: boolean; message: string }> {
     const response = await this.client.post(`/analises/processar/${empresaId}`);
-    return response.data;
+    return unwrap<{ success: boolean; message: string }>(response.data);
   }
 
   async processarLote(empresaIds: string[]): Promise<{ success: boolean; message: string; data?: any }> {
     const response = await this.client.post('/analises/processar-lote', empresaIds);
-    return response.data;
+    return unwrap<{ success: boolean; message: string; data?: any }>(response.data);
   }
 
   async obterAnalise(id: string): Promise<Analise> {
     const response = await this.client.get(`/analises/${id}`);
-    return response.data;
+    return unwrap<Analise>(response.data);
   }
 
   async obterAnaliseEmpresa(empresaId: string): Promise<Analise> {
     const response = await this.client.get(`/empresas/${empresaId}/analise`);
-    return response.data;
+    return unwrap<Analise>(response.data);
   }
 
   async obterGraficoRadar(analiseId: string): Promise<Blob> {
@@ -114,22 +169,22 @@ class ApiClient {
   // RANKINGS
   async obterRankingGeral(limite = 50, offset = 0): Promise<RankingResponse> {
     const response = await this.client.get('/rankings/geral', { params: { limite, offset } });
-    return response.data;
+    return unwrap<RankingResponse>(response.data);
   }
 
   async obterRankingSetor(setor: Setor, limite = 50): Promise<RankingResponse> {
     const response = await this.client.get(`/rankings/setor/${setor}`, { params: { limite } });
-    return response.data;
+    return unwrap<RankingResponse>(response.data);
   }
 
   async obterEstatisticas(): Promise<EstatisticasSetor[]> {
     const response = await this.client.get('/rankings/estatisticas');
-    return response.data;
+    return unwrap<EstatisticasSetor[]>(response.data) || [];
   }
 
   async filtrarRanking(filtros: FiltrosRanking): Promise<RankingResponse> {
     const response = await this.client.post('/rankings/filtrar', filtros);
-    return response.data;
+    return unwrap<RankingResponse>(response.data);
   }
 
   async compararEmpresas(empresaAId: string, empresaBId: string): Promise<Comparacao> {
@@ -137,7 +192,7 @@ class ApiClient {
       empresa_a_id: empresaAId,
       empresa_b_id: empresaBId,
     });
-    return response.data;
+    return unwrap<Comparacao>(response.data);
   }
 
   async obterGraficoComparativo(empresaAId: string, empresaBId: string): Promise<Blob> {
@@ -204,7 +259,7 @@ class ApiClient {
   // HELPERS
   async listarSetores(): Promise<Setor[]> {
     const response = await this.client.get('/empresas/setores/lista');
-    return response.data;
+    return unwrap<Setor[]>(response.data) || [];
   }
 }
 
